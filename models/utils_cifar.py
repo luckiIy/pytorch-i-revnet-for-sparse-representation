@@ -63,6 +63,7 @@ classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship'
 
 
 def learning_rate(init, epoch):
+    # 随epoch增加到一定程度降低lr
     optim_factor = 0
     if(epoch > 160):
         optim_factor = 3
@@ -76,36 +77,46 @@ def learning_rate(init, epoch):
 def get_hms(seconds):
     m, s = divmod(seconds, 60)
     h, m = divmod(m, 60)
-
     return h, m, s
 
 
 def train(model, trainloader, trainset, epoch, num_epochs, batch_size, lr, use_cuda, in_shape):
+    '''
+    epoch 是当前epoch
+    num_epoch 是总数，为了方便显示
+    in_shape 没用上？？？
+    '''
     model.train()
     train_loss = 0
     correct = 0
     total = 0
+    # 这里是SGD优化，但是超参数的选取不知道是怎么来的，主要是后面这个decay
     optimizer = optim.SGD(model.parameters(), lr=learning_rate(lr, epoch), momentum=0.9, weight_decay=5e-4)
-
+    # 这里是得到并输出参数总量params
+    # 这里是个技巧，虽然有点复杂
+    # 首先是lambda定义了一个对p的任意函数，而model.parameters是model中所有tensor参数的集合，函数lambda中的.requires_grad属性保证了过滤器得到的是可变参数
+    # 即model_parameters包含了model中所有的可变参数，这个filter结构也被用来固定部分参数训练另一部分的挑选
     model_parameters = filter(lambda p: p.requires_grad, model.parameters())
     params = sum([np.prod(p.size()) for p in model_parameters])
-
     print('|  Number of Trainable Parameters: ' + str(params))
+    # 输出epoch和lr
     print('\n=> Training Epoch #%d, LR=%.4f' % (epoch, learning_rate(lr, epoch)))
+    # 这里就是需要改动的地方了，事实上稀疏性作为约束优化的结果是没有targets的
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()  # GPU settings
         optimizer.zero_grad()
         inputs, targets = Variable(inputs), Variable(targets)
         out, out_bij = model(inputs)               # Forward Propagation
-        loss = criterion(out, targets)  # Loss
+        loss = criterion(out, targets)  # Loss 上面定义的交叉熵损失
         loss.backward()  # Backward Propagation
         optimizer.step()  # Optimizer update
-
+        # 修正loss的tensor格式
         try:
             loss.data[0]
         except IndexError:
             loss.data = torch.reshape(loss.data, (1,))
+        # 求当前epoch中loss的和
         train_loss += loss.data[0]
         _, predicted = torch.max(out.data, 1)
         total += targets.size(0)

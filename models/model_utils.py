@@ -25,14 +25,14 @@ class injective_pad(nn.Module):
     def __init__(self, pad_size):
         super(injective_pad, self).__init__()
         self.pad_size = pad_size
-        self.pad = nn.ZeroPad2d((0, 0, 0, pad_size))
+        self.pad = nn.ZeroPad2d((0, 0, 0, pad_size))    # 仅在2维的下补0，不知道为啥
 
     def forward(self, x):
-        x = x.permute(0, 2, 1, 3)
+        x = x.permute(0, 2, 1, 3)   # 重新排宽高，也不知道为啥
         x = self.pad(x)
         return x.permute(0, 2, 1, 3)
 
-    def inverse(self, x):
+    def inverse(self, x):   # 回到forward前的x
         return x[:, :x.size(1) - self.pad_size, :, :]
 
 

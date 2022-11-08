@@ -50,6 +50,7 @@ import argparse
 from models.utils_cifar import train, test, std, mean, get_hms
 from models.iRevNet import iRevNet
 
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 parser = argparse.ArgumentParser(description='Train i-RevNet/RevNet on Cifar')
 parser.add_argument('--lr', default=0.1, type=float, help='learning rate')
@@ -141,6 +142,8 @@ def main():
 
     elapsed_time = 0
     best_acc = 0.
+
+
     for epoch in range(1, 1+args.epochs):
         start_time = time.time()
 

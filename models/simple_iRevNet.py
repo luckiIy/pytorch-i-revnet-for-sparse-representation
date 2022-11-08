@@ -61,7 +61,7 @@ class irevnet_block(nn.Module):
 
 # i-RevNet
 class iRevNet(nn.Module):
-    def __init__(self, nBlocks, nStrides, nClasses, nChannels=None, init_ds=2,
+    def __init__(self, nBlocks, nStrides, nChannels=None, init_ds=2,
                  dropout_rate=0., affineBN=True, in_shape=None, mult=4):
         '''
         in_shape 是单个输入图像的shape (3, n_H, n_W)
@@ -85,9 +85,9 @@ class iRevNet(nn.Module):
                                         nStrides, dropout_rate=dropout_rate,
                                         affineBN=affineBN, in_ch=self.in_ch,
                                         mult=mult)
-        # 下面这两行应该是最后了？，把最后特征的通道*2，BN后线性到类上
-        self.bn1 = nn.BatchNorm2d(nChannels[-1]*2, momentum=0.9)
-        self.linear = nn.Linear(nChannels[-1]*2, nClasses)
+        # # 下面这两行应该是最后了？，把最后特征的通道*2，BN后线性到类上
+        # self.bn1 = nn.BatchNorm2d(nChannels[-1]*2, momentum=0.9)
+        # self.linear = nn.Linear(nChannels[-1]*2, nClasses)
 
     def irevnet_stack(self, _block, nChannels, nBlocks, nStrides, dropout_rate,
                       affineBN, in_ch, mult):
@@ -120,14 +120,15 @@ class iRevNet(nn.Module):
             out = block.forward(out)
         # 得到前向输出，其中out_bij储存了可用于逆的特征
         out_bij = merge(out[0], out[1])
-        # BN, ReLU
-        out = F.relu(self.bn1(out_bij))
-        # 平均值池化，ds是池化的kernel size？但是这里的意图在于计算最后输出特征的n_H,n_W,直接对单个二维图平均值作为一维特征输出，就是不知道咋算的
-        out = F.avg_pool2d(out, self.ds)
-        # 整理特征，送到线性映射，得到最终的输出out
-        out = out.view(out.size(0), -1)
-        out = self.linear(out)
-        return out, out_bij
+        # # BN, ReLU
+        # out = F.relu(self.bn1(out_bij))
+        # # 平均值池化，ds是池化的kernel size？但是这里的意图在于计算最后输出特征的n_H,n_W,直接对单个二维图平均值作为一维特征输出，就是不知道咋算的
+        # out = F.avg_pool2d(out, self.ds)
+        # # 整理特征，送到线性映射，得到最终的输出out
+        # out = out.view(out.size(0), -1)
+        # out = self.linear(out)
+        # return out, out_bij
+        return out_bij
 
     def inverse(self, out_bij):
         """ irevnet inverse """

@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from .model_utils import split, merge, injective_pad, psi
+from models.model_utils import split, merge, injective_pad, psi
 
 
 class irevnet_block(nn.Module):
@@ -19,22 +19,24 @@ class irevnet_block(nn.Module):
         """ buid invertible bottleneck block """
         super(irevnet_block, self).__init__()
         self.first = first
-        self.pad = 2 * out_ch - in_ch
+        self.pad = 2 * out_ch - in_ch   # pad为啥这样算？
         self.stride = stride
-        self.inj_pad = injective_pad(self.pad)
+
+        self.inj_pad = injective_pad(self.pad)  # 是因为这里是单补0吗
+
         self.psi = psi(stride)
         if self.pad != 0 and stride == 1:
             in_ch = out_ch * 2
             print('')
-            print('| Injective iRevNet |')
+            print('| Injective iRevNet |')  # SOGA，用来控制论文里介绍的那个单射网络的
             print('')
         layers = []
         if not first:
             layers.append(nn.BatchNorm2d(in_ch//2, affine=affineBN))
             layers.append(nn.ReLU(inplace=True))
         layers.append(nn.Conv2d(in_ch//2, int(out_ch//mult), kernel_size=3,
-                      stride=stride, padding=1, bias=False))
-        layers.append(nn.BatchNorm2d(int(out_ch//mult), affine=affineBN))
+                      stride=stride, padding=1, bias=False))    # 这里来回乘2除2好像都是为了那个单射的网络匹配？真是严重降低了代码可读性
+        layers.append(nn.BatchNorm2d(int(out_ch//mult), affine=affineBN))   # affineBN=1即保证归一化中gama和beta可学习
         layers.append(nn.ReLU(inplace=True))
         layers.append(nn.Conv2d(int(out_ch//mult), int(out_ch//mult),
                       kernel_size=3, padding=1, bias=False))
@@ -47,9 +49,9 @@ class irevnet_block(nn.Module):
 
     def forward(self, x):
         """ bijective or injective block forward """
-        if self.pad != 0 and self.stride == 1:
+        if self.pad != 0 and self.stride == 1:  # 这里的pad是那个大量补0的pad吧。。。injective就会进去
             x = merge(x[0], x[1])
-            x = self.inj_pad.forward(x)
+            x = self.inj_pad.forward(x) #先合并，然后做一个forward，再合在一起
             x1, x2 = split(x)
             x = (x1, x2)
         x1 = x[0]
@@ -151,9 +153,22 @@ class iRevNet(nn.Module):
 
 
 if __name__ == '__main__':
-    model = iRevNet(nBlocks=[6, 16, 72, 6], nStrides=[2, 2, 2, 2],
-                    nChannels=[24, 96, 384, 1536], nClasses=1000, init_ds=2,
-                    dropout_rate=0., affineBN=True, in_shape=[3, 224, 224],
-                    mult=4)
-    y = model(Variable(torch.randn(1, 3, 224, 224)))
-    print(y.size())
+    # model = iRevNet(nBlocks=[6, 16, 72, 6], nStrides=[2, 2, 2, 2],
+    #                 nChannels=[24, 96, 384, 1536], nClasses=1000, init_ds=2,
+    #                 dropout_rate=0., affineBN=True, in_shape=[3, 224, 224],
+    #                 mult=4)
+    # y = model(Variable(torch.randn(1, 3, 224, 224)))
+    # print(len(y))
+    '''
+    上面是原本的
+    下面开始test各种函数
+    '''
+    # non-square kernels and unequal stride and with padding
+    m = nn.Conv2d(16, 33, (3, 5), stride=(2, 1), padding=(4, 2))
+    # non-square kernels and unequal stride and with padding and dilation
+    # m = nn.Conv2d(16, 33, (3, 5), stride=(2, 1), padding=(4, 2), dilation=(3, 1))
+    input = torch.randn(20, 16, 50, 100)
+    output = m(input)
+    print(output.shape)
+
+
