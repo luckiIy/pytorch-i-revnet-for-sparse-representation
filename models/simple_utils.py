@@ -12,8 +12,13 @@ import os
 import sys
 import math
 import numpy as np
+# test1
+# 经测试，用L1Loss作为损失，LOSS会逐渐降低，输出特征会逐渐减小，但就是不会归0。。这也不是不收敛啊，不收敛指的应该是LOSS没法稳定下降，所以接下来试试smoothL1不行再看看是不是结构出问题了
+# criterion = nn.L1Loss()
 
-criterion = nn.L1Loss()
+# test2
+criterion = nn.SmoothL1Loss()
+
 
 # 各通道normal的均值和标准差，这组数据不知道是咋来的，以及为啥要normal，大概是跑了一次之后指数平均？
 mean = {
@@ -26,15 +31,17 @@ std = {
     'cifar100': (0.2675, 0.2565, 0.2761),
 }
 
-
+# test2.0中仅改变Loss无效，结果是收敛确实变快了，但特征就是不为0？不知道是不是pytorch有什么特别的正则化机制？还是受BN影响？
+# 接下来尝试逐步降低lr，之前一直是小epoch所以lr一直为0.1，但考虑到收敛速度很快，在10，20，30分别降低lr
+# 看看是否是出现了那种来回交替就是不归0的情况，但如果真的是这样感觉大概率是不可行的，但看看LOSS会不会大幅度下降
 def learning_rate(init, epoch):
     # 随epoch增加到一定程度降低lr
     optim_factor = 0
-    if(epoch > 160):
+    if(epoch > 30):
         optim_factor = 3
-    elif(epoch > 120):
+    elif(epoch > 20):
         optim_factor = 2
-    elif(epoch > 60):
+    elif(epoch > 10):
         optim_factor = 1
     return init*math.pow(0.2, optim_factor)
 
@@ -46,6 +53,10 @@ def get_hms(seconds):
 
 def unsupervised_train(model, trainloader, trainset, epoch, epoch_n, batch_size, lr):
     model.train()
+    # 按epoch统计稀疏率
+    zero_num = 0
+    total = 0
+    loss_sum = 0
     # 这里是SGD优化，但是超参数的选取不知道是怎么来的，主要是后面这个decay
     optimizer = optim.SGD(model.parameters(), lr=learning_rate(lr, epoch), momentum=0.9, weight_decay=5e-4)
 
@@ -67,6 +78,8 @@ def unsupervised_train(model, trainloader, trainset, epoch, epoch_n, batch_size,
         inputs = Variable(inputs)
         out = model(inputs)
         zero_tensor = torch.zeros(out.shape)
+        zero_tensor = zero_tensor.cuda()
+        zero_tensor = Variable(zero_tensor)
         loss = criterion(out, zero_tensor)
         loss.backward()  # Backward Propagation
         optimizer.step()  # Optimizer update
@@ -75,11 +88,13 @@ def unsupervised_train(model, trainloader, trainset, epoch, epoch_n, batch_size,
             loss.data[0]
         except IndexError:
             loss.data = torch.reshape(loss.data, (1,))
-        sparse_rate = out.eq(0).cpu().sum() / np.prod(out.size())
+        loss_sum += loss.data[0]
+        zero_num += out.eq(zero_tensor).cpu().sum()
+        total += np.prod(out.size())
         sys.stdout.write('\r')
         sys.stdout.write('| Epoch [%3d/%3d] Iter[%3d/%3d]\t\tLoss: %.4f Acc@1: %.3f%%'
                          % (epoch, epoch_n, batch_idx + 1,
-                            (len(trainset) // batch_size) + 1, loss.data[0], 100.*sparse_rate))
+                            (len(trainset) // batch_size) + 1, loss_sum / batch_idx, 100.*zero_num/total))
         sys.stdout.flush()
 
 

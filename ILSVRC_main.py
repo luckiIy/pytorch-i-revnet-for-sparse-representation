@@ -118,6 +118,7 @@ def main():
 
     # create model
     print("=> creating model '{}'".format(args.arch))
+    # 这里model还是用的i-RevNet很好啊，省的读了
     model = iRevNet(nBlocks=args.nBlocks, nStrides=args.nStrides,
                     nChannels=args.nChannels, nClasses=1000, init_ds=args.init_ds,
                     dropout_rate=0., affineBN=True, in_shape=[3, 224, 224])
@@ -133,6 +134,7 @@ def main():
 
 
     # define loss function (criterion) and optimizer
+    # 交叉熵损失
     criterion = nn.CrossEntropyLoss().cuda()
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
@@ -158,6 +160,7 @@ def main():
     # Data loading code
     traindir = os.path.join(args.data, 'train')
     valdir = os.path.join(args.data, 'val')
+    # 这个normalize的值还是不知道是怎么规定的
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 

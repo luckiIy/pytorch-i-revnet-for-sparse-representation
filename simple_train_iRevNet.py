@@ -45,7 +45,7 @@ def main():
     # 瓶颈乘数为4，这玩意限制了block中间卷积层的通道数，缩小4倍，经典的瓶颈层
     bottleneck_mult = 4
     #
-    epochs = 10
+    epochs = 30
     lr = 0.1
     batch = 128
     def get_model():
@@ -57,6 +57,12 @@ def main():
         return model, fname
 
     model, fname = get_model()
+    # 使用GPU
+    model.cuda()
+    model = torch.nn.DataParallel(model, device_ids=(0,))  # range(torch.cuda.device_count()))
+    cudnn.benchmark = True
+
+
 
     print('|  Train Epochs: ' + str(epochs))
     print('|  Initial Learning Rate: ' + str(lr))

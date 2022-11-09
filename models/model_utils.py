@@ -25,10 +25,11 @@ class injective_pad(nn.Module):
     def __init__(self, pad_size):
         super(injective_pad, self).__init__()
         self.pad_size = pad_size
-        self.pad = nn.ZeroPad2d((0, 0, 0, pad_size))    # 仅在2维的下补0，不知道为啥
+        # 这里看似是pad在了n_H上，事实上下面的forward里交换了C和n_H,其实是执行了通道补0，为啥搞这么复杂，pytorch没有按通道补0吗
+        self.pad = nn.ZeroPad2d((0, 0, 0, pad_size))
 
     def forward(self, x):
-        x = x.permute(0, 2, 1, 3)   # 重新排宽高，也不知道为啥
+        x = x.permute(0, 2, 1, 3)   # 重新排通道数和n_H，
         x = self.pad(x)
         return x.permute(0, 2, 1, 3)
 

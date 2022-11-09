@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from models.model_utils import split, merge, psi
+from models.model_utils import split, merge, psi, injective_pad
 
 # 构成iRevnet的基本块
 class irevnet_block(nn.Module):
@@ -17,8 +17,14 @@ class irevnet_block(nn.Module):
         self.pad = 2 * out_ch - in_ch  # pad为啥这样算？
         self.stride = stride
 
-        self.psi = psi(stride)
+        self.inj_pad = injective_pad(self.pad)  # 是因为这里是单补0吗
 
+        self.psi = psi(stride)
+        if self.pad != 0 and stride == 1:
+            in_ch = out_ch * 2
+            print('')
+            print('| Injective iRevNet |')  # SOGA，用来控制论文里介绍的那个单射网络的
+            print('')
         layers = []
         if not first:
             layers.append(nn.BatchNorm2d(in_ch // 2, affine=affineBN))
@@ -38,6 +44,12 @@ class irevnet_block(nn.Module):
 
     def forward(self, x):
         """ bijective block forward 这里很明显是那个保留一部分的结构"""
+        # 这里很重要，目前还没理解，通过这里之后通道数从1，2变成了16，16大量在这里补0
+        if self.pad != 0 and self.stride == 1:  # 这里的pad是那个大量补0的pad吧。。。injective就会进去
+            x = merge(x[0], x[1])
+            x = self.inj_pad.forward(x) #先合并，然后做一个forward，再合在一起
+            x1, x2 = split(x)
+            x = (x1, x2)
         x1 = x[0]
         x2 = x[1]
         Fx2 = self.bottleneck_block(x2)
@@ -56,7 +68,13 @@ class irevnet_block(nn.Module):
         x1 = Fx2 + y1   # X1 = Y1 - F（Y2（X2））
         if self.stride == 2:
             x1 = self.psi.inverse(x1)
-        x = (x1, x2)
+        if self.pad != 0 and self.stride == 1:
+            x = merge(x1, x2)
+            x = self.inj_pad.inverse(x)
+            x1, x2 = split(x)
+            x = (x1, x2)
+        else:
+            x = (x1, x2)
         return x
 
 # i-RevNet
