@@ -32,16 +32,16 @@ std = {
 }
 
 # test2.0中仅改变Loss无效，结果是收敛确实变快了，但特征就是不为0？不知道是不是pytorch有什么特别的正则化机制？还是受BN影响？
-# 接下来尝试逐步降低lr，之前一直是小epoch所以lr一直为0.1，但考虑到收敛速度很快，在10，20，30分别降低lr
+# 接下来尝试逐步降低lr，之前一直是小epoch所以lr一直为0.1，但考虑到收敛速度很快，在10，20，30分别降低lr，原本是60，120，180
 # 看看是否是出现了那种来回交替就是不归0的情况，但如果真的是这样感觉大概率是不可行的，但看看LOSS会不会大幅度下降
 def learning_rate(init, epoch):
     # 随epoch增加到一定程度降低lr
     optim_factor = 0
-    if(epoch > 30):
+    if(epoch > 180):
         optim_factor = 3
-    elif(epoch > 20):
+    elif(epoch > 120):
         optim_factor = 2
-    elif(epoch > 10):
+    elif(epoch > 60):
         optim_factor = 1
     return init*math.pow(0.2, optim_factor)
 
@@ -92,12 +92,70 @@ def unsupervised_train(model, trainloader, trainset, epoch, epoch_n, batch_size,
         zero_num += out.eq(zero_tensor).cpu().sum()
         total += np.prod(out.size())
         sys.stdout.write('\r')
-        sys.stdout.write('| Epoch [%3d/%3d] Iter[%3d/%3d]\t\tLoss: %.4f Acc@1: %.3f%%'
+        sys.stdout.write('| Epoch [%3d/%3d] Iter[%3d/%3d]\t\tLoss: %.4f Spare_rate: %.3f%%'
                          % (epoch, epoch_n, batch_idx + 1,
                             (len(trainset) // batch_size) + 1, loss_sum / batch_idx, 100.*zero_num/total))
         sys.stdout.flush()
+        # 在最后加一行仅作测试，在最后要注释掉
 
 
 # test部分暂时先不写吧，先去试试train了
 def test(model):
     model.eval()
+
+# 执行逆向过程验证是否能够重建, 这边先写一个对单个数据的
+def invert_feature(model, input_for_rebuilt):
+
+    # 计算正向过程输出
+    output_bij = model(input_for_rebuilt)
+    # 这里.module是父类，但是这里有点不清楚一会要逐步调试
+    x_inv = model.module.inverse(output_bij)
+    # 现在这里验证一下inverse回来的跟
+    assert (input_for_rebuilt.shape == x_inv.shape)
+    match = input_for_rebuilt.eq(x_inv).cpu().sum() / np.prod(input_for_rebuilt.shape)
+    return x_inv, match
+
+# 这个函数用来逆
+def invert_img(feature):
+    feature
+
+
+
+def invert(model, val_loader):
+    model.eval()
+    for i, (input, target) in enumerate(val_loader):
+        input_var = torch.autograd.Variable(input, volatile=True).cuda()
+
+        x_inv, _ = invert_feature(model, input_var)
+
+        # invert_img(x_inv)
+
+        # 这里为啥还要用input?嗷嗷，好像是用来显示input图像的
+        # 只取8张展示
+        inp = input_var.data[:8,:,:,:]
+        x_inv = x_inv.data[:8,:,:,:]
+        # 在第三个通道上拼接了，也即高拼接？为了同时展示上下8张图片
+        grid = torch.cat((inp, x_inv),2).cpu().numpy()
+        # 接下来是反normal?
+        std = np.array([0.2023, 0.1994, 0.2010])
+        mean= np.array([0.4914, 0.4922, 0.4465])
+        grid = grid[:,:,:,:] * std[None, :, None, None]
+        grid = grid[:,:,:,:] + mean[None, :, None, None]
+        grid += np.abs(grid.min())
+        grid /= grid.max()
+        grid *= 255.
+        grid = np.uint8(grid)
+        # 变化通道从NCHW到NWHC，reshape为32*8(横8),32*2(纵2)，3（C），再改为纵横C
+        grid = grid.transpose((0, 3, 2, 1)).reshape((-1, 32*2, 3)).transpose((1, 0, 2))
+        g1 = grid[:32, :, :]
+        g2 = grid[32:, :, :]
+        match = np.sum(abs(g1 - g2))
+        print("图像是否重建", match == 0)
+        import matplotlib.pyplot as plt
+        plt.imsave('invert_val_samples.jpg', grid)
+        print("数据重建结果已输出")
+        return
+
+#  便于下次训练
+def save_checkpoint(state, filename='checkpoint/Spare/i-revnet-55.t7'):
+    torch.save(state, filename)

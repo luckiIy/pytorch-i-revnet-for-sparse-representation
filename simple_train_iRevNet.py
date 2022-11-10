@@ -14,7 +14,7 @@ import sys
 import time
 
 from models.simple_iRevNet import iRevNet
-from models.simple_utils import unsupervised_train, mean, std, get_hms
+from models.simple_utils import unsupervised_train, mean, std, get_hms, save_checkpoint, invert
 
 
 
@@ -45,13 +45,13 @@ def main():
     # 瓶颈乘数为4，这玩意限制了block中间卷积层的通道数，缩小4倍，经典的瓶颈层
     bottleneck_mult = 4
     #
-    epochs = 30
+    epochs = 90
     lr = 0.1
     batch = 128
     def get_model():
         model = iRevNet(nBlocks=nBlocks, nStrides=nStrides,
                         nChannels=nChannels,init_ds=init_ds,
-                        dropout_rate=0.1, affineBN=True,
+                        dropout_rate=0., affineBN=True,
                         in_shape=in_shape, mult=bottleneck_mult)
         fname = 'i-revnet-' + str(sum(nBlocks) + 1)# 每个Block不是有三个conv吗，命名不乘个3吗
         return model, fname
@@ -62,6 +62,30 @@ def main():
     model = torch.nn.DataParallel(model, device_ids=(0,))  # range(torch.cuda.device_count()))
     cudnn.benchmark = True
 
+    # resume from cheakpoint
+    is_resume = 1
+    resume = 'checkpoint/Spare/i-revnet-55.t7'
+    start_epoch = 1
+    if is_resume:
+        if os.path.isfile(resume):
+            print("=> loading checkpoint '{}'".format(resume))
+            checkpoint = torch.load(resume)
+            start_epoch = checkpoint['epoch']
+            model.load_state_dict(checkpoint['state_dict'])
+            print("=> loaded checkpoint '{}' (epoch {})"
+                  .format(resume, checkpoint['epoch']))
+        else:
+            print("=> no checkpoint found at '{}'".format(resume))
+
+    is_invert = 1
+    if is_resume:
+        if is_invert:
+            invert(model, trainloader)
+            return
+        else:
+            print("no model ready for invert, please use resume")
+
+
 
 
     print('|  Train Epochs: ' + str(epochs))
@@ -69,13 +93,18 @@ def main():
 
     elapsed_time = 0
     best_sparse_rate = 0.
-    for epoch in range(1, 1+epochs):
+    for epoch in range(start_epoch, 1+epochs):
         start_time = time.time()
 
         unsupervised_train(model, trainloader, trainset, epoch, epochs, batch, lr)
 
         epoch_time = time.time() - start_time
         elapsed_time += epoch_time
+        if epoch % 10 == 0:
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': model.state_dict(),
+            })
         print('| Elapsed time : %d:%02d:%02d' % (get_hms(elapsed_time)))
 
 

@@ -124,6 +124,7 @@ def main():
                     dropout_rate=0., affineBN=True, in_shape=[3, 224, 224])
 
     if args.invert:
+        # 这里不清楚为啥invert就要用这个函数去查一下吧
         model = torch.nn.DataParallel(model).cuda()
     else:
         if not args.distributed:
@@ -169,6 +170,7 @@ def main():
         transforms.Compose([
             transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
+            # 图像增强色彩变化
             transforms.ColorJitter(brightness=0.87, contrast=0.5,
                                    saturation=0.5, hue=0.2),
             transforms.ToTensor(),
@@ -193,7 +195,7 @@ def main():
         ])),
         batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, pin_memory=True)
-
+    # 重建
     if args.invert:
         invert(val_loader, model)
         return
@@ -205,6 +207,7 @@ def main():
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
+        # 随epoch改变lr
         adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
@@ -226,6 +229,7 @@ def main():
 
 
 def train(train_loader, model, criterion, optimizer, epoch):
+    # 利用统计平均值的类便于求均值
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -234,13 +238,11 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
     # switch to train mode
     model.train()
-
-    end = time.time()
+    basetime = time.time()
     for i, (input, target) in enumerate(train_loader):
         # measure data loading time
-        data_time.update(time.time() - end)
-        # 这里报错了，先不看，先注释掉
-        # target = target.cuda(async=True)
+        data_time.update(time.time() - basetime)
+        target = target.cuda(non_blocking=True)
         input_var = torch.autograd.Variable(input)
         target_var = torch.autograd.Variable(target)
 
@@ -260,8 +262,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
         optimizer.step()
 
         # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
+        batch_time.update(time.time() - basetime)
+        basetime = time.time()
 
         if i % args.print_freq == 0:
             print('Epoch: [{0}][{1}/{2}]\t'
@@ -285,8 +287,7 @@ def validate(val_loader, model, criterion):
 
     end = time.time()
     for i, (input, target) in enumerate(val_loader):
-        # 这里也是先注释掉，事实上应该是==吧，不知道作者为啥没改
-        # target = target.cuda(async=True)
+        target = target.cuda(non_blocking=True)
         input_var = torch.autograd.Variable(input, volatile=True)
         target_var = torch.autograd.Variable(target, volatile=True)
 
@@ -317,7 +318,7 @@ def validate(val_loader, model, criterion):
           .format(top1=top1, top5=top5))
 
     return top1.avg
-
+# 这里是求逆的过程肯定要好好看看
 def invert(val_loader, model):
     # switch to evaluate mode
     model.eval()
@@ -330,7 +331,7 @@ def invert(val_loader, model):
 
         # invert bijective output
         x_inv = model.module.inverse(out_bij)
-
+        # 这里为啥还要用input?嗷嗷，好像是用来显示input图像的
         inp = input_var.data[:8,:,:,:]
         x_inv = x_inv.data[:8,:,:,:]
 
@@ -356,7 +357,7 @@ def save_checkpoint(state, is_best,
     if is_best:
         shutil.copyfile(filename, './checkpoint/ilsvrc2012/best_irevnet.pth.tar')
 
-
+# AvergeMeter在这里嘞
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self):

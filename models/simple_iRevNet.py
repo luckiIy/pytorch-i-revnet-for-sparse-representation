@@ -8,6 +8,7 @@ from torch.autograd import Variable
 from models.model_utils import split, merge, psi, injective_pad
 
 # 构成iRevnet的基本块
+# test3,修改block使得最后一层输出变为ReLU而非Conv直觉上这样会增加得0率
 class irevnet_block(nn.Module):
     def __init__(self, in_ch, out_ch, stride=1, first=False, dropout_rate=0.,
                  affineBN=True, mult=4):
@@ -26,9 +27,8 @@ class irevnet_block(nn.Module):
             print('| Injective iRevNet |')  # SOGA，用来控制论文里介绍的那个单射网络的
             print('')
         layers = []
-        if not first:
-            layers.append(nn.BatchNorm2d(in_ch // 2, affine=affineBN))
-            layers.append(nn.ReLU(inplace=True))
+        # if not first:
+
         layers.append(nn.Conv2d(in_ch // 2, int(out_ch // mult), kernel_size=3,
                                 stride=stride, padding=1, bias=False))  # 这里来回乘2除2好像都是为了那个单射的网络匹配？真是严重降低了代码可读性
         layers.append(nn.BatchNorm2d(int(out_ch // mult), affine=affineBN))  # affineBN=1即保证归一化中gama和beta可学习
@@ -40,6 +40,9 @@ class irevnet_block(nn.Module):
         layers.append(nn.ReLU(inplace=True))
         layers.append(nn.Conv2d(int(out_ch // mult), out_ch, kernel_size=3,
                                 padding=1, bias=False))
+        layers.append(nn.BatchNorm2d(out_ch, affine=affineBN))
+        layers.append(nn.ReLU(inplace=True))
+
         self.bottleneck_block = nn.Sequential(*layers)
 
     def forward(self, x):

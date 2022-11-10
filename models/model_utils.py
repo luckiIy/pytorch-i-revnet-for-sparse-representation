@@ -12,6 +12,7 @@ from torch.nn import Parameter
 
 def split(x):
     n = int(x.size()[1]/2)
+    # 不加contigous的话x和x1,x2还是会相互关联，后面可以详细试试
     x1 = x[:, :n, :, :].contiguous()
     x2 = x[:, n:, :, :].contiguous()
     return x1, x2
