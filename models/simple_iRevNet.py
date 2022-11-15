@@ -55,6 +55,7 @@ class irevnet_block(nn.Module):
             x = (x1, x2)
         x1 = x[0]
         x2 = x[1]
+        # 真正进入网络的地方，所以这里经常出问题，断点设在这
         Fx2 = self.bottleneck_block(x2)
         if self.stride == 2:
             x1 = self.psi.forward(x1)
@@ -102,6 +103,9 @@ class iRevNet(nn.Module):
                          self.in_ch//2 * 4**2, self.in_ch//2 * 4**3]
 
         self.init_psi = psi(self.init_ds) # psi一直不理解，注意这里是用ds初始化的
+        # 事实上这里输入的就是nChannal啊，完全由之前那个矩阵控制
+
+        # 更好的做法为进行初始下采样
         self.stack = self.irevnet_stack(irevnet_block, nChannels, nBlocks,
                                         nStrides, dropout_rate=dropout_rate,
                                         affineBN=affineBN, in_ch=self.in_ch,

@@ -17,10 +17,10 @@ import numpy as np
 # criterion = nn.L1Loss()
 
 # test2
-criterion = nn.SmoothL1Loss()
+criterion = nn.L1Loss()
 
 
-# 各通道normal的均值和标准差，这组数据不知道是咋来的，以及为啥要normal，大概是跑了一次之后指数平均？
+# 各通道normal的均值和标准差
 mean = {
     'cifar10': (0.4914, 0.4822, 0.4465),
     'cifar100': (0.5071, 0.4867, 0.4408),
@@ -51,11 +51,29 @@ def get_hms(seconds):
     return h, m, s
 
 
+
+# 定义基尼系数的计算方式
+def compute_gini(feature):
+    # 输入feature应该是提取到的特征，tensor型数据,转为numpy，转成向量，获得长度，取绝对值变为标准的可measure非负序列
+    feature = feature.cpu().detach().numpy()
+    feature = feature.reshape(-1)
+    n = feature.shape[0]
+
+    # 利用compare measure那篇文章的公式，求1范数，排序，求解gini
+    feature = np.abs(feature)
+    f_sum = np.sum(feature)
+    feature = np.sort(feature)
+    k = np.arange(n) + 1.
+    gini =1. - 2. * np.sum((n + 0.5 - k) / (f_sum * n) * feature)
+    return gini
+
 def unsupervised_train(model, trainloader, trainset, epoch, epoch_n, batch_size, lr):
     model.train()
     # 按epoch统计稀疏率
-    zero_num = 0
-    total = 0
+    # zero_num = 0
+    # total = 0
+    gini_input = AverageMeter()
+    gini = AverageMeter()
     loss_sum = 0
     # 这里是SGD优化，但是超参数的选取不知道是怎么来的，主要是后面这个decay
     optimizer = optim.SGD(model.parameters(), lr=learning_rate(lr, epoch), momentum=0.9, weight_decay=5e-4)
@@ -89,12 +107,18 @@ def unsupervised_train(model, trainloader, trainset, epoch, epoch_n, batch_size,
         except IndexError:
             loss.data = torch.reshape(loss.data, (1,))
         loss_sum += loss.data[0]
-        zero_num += out.eq(zero_tensor).cpu().sum()
-        total += np.prod(out.size())
+        # # 原本的数0
+        # zero_num += out.eq(zero_tensor).cpu().sum()
+        # total += np.prod(out.size())
+        # 经测试每个epoch里计算gini耗时约14S*2，这个计算量确实不小，改为10个batch算一次以显示吧
+        if batch_idx % 10 == 0:
+            # 计算输入的gini系数作为对比
+            gini_input.update(compute_gini(inputs))
+            gini.update(compute_gini(out))
         sys.stdout.write('\r')
-        sys.stdout.write('| Epoch [%3d/%3d] Iter[%3d/%3d]\t\tLoss: %.4f Spare_rate: %.3f%%'
+        sys.stdout.write('| Epoch [%3d/%3d] Iter[%3d/%3d]\t\tLoss: %.4f Input Gini: %.3f Out Gini Index: %.3f '
                          % (epoch, epoch_n, batch_idx + 1,
-                            (len(trainset) // batch_size) + 1, loss_sum / batch_idx, 100.*zero_num/total))
+                            (len(trainset) // batch_size) + 1, loss_sum / batch_idx, gini_input.avg, gini.avg))
         sys.stdout.flush()
         # 在最后加一行仅作测试，在最后要注释掉
 
@@ -103,59 +127,77 @@ def unsupervised_train(model, trainloader, trainset, epoch, epoch_n, batch_size,
 def test(model):
     model.eval()
 
-# 执行逆向过程验证是否能够重建, 这边先写一个对单个数据的
-def invert_feature(model, input_for_rebuilt):
-
-    # 计算正向过程输出
-    output_bij = model(input_for_rebuilt)
-    # 这里.module是父类，但是这里有点不清楚一会要逐步调试
-    x_inv = model.module.inverse(output_bij)
-    # 现在这里验证一下inverse回来的跟
-    assert (input_for_rebuilt.shape == x_inv.shape)
-    match = input_for_rebuilt.eq(x_inv).cpu().sum() / np.prod(input_for_rebuilt.shape)
-    return x_inv, match
-
-# 这个函数用来逆
-def invert_img(feature):
-    feature
-
-
 
 def invert(model, val_loader):
+
+    # 执行逆向过程验证是否能够重建, 这边先写一个对单个数据的
+    def invert_feature(model, input_for_rebuilt):
+        # 计算正向过程输出
+        output_bij = model(input_for_rebuilt)
+        # 这里.module是父类，但是这里有点不清楚一会要逐步调试
+        x_inv = model.module.inverse(output_bij)
+        # 现在这里验证一下inverse回来的跟
+        assert (input_for_rebuilt.shape == x_inv.shape)
+        match = input_for_rebuilt.eq(x_inv).cpu().sum() / np.prod(input_for_rebuilt.shape)
+        return x_inv, match
+
+    # 这个函数用来从trainloader取的input回到原始图像
+    def invert_img(feature):
+        std = np.array([0.2023, 0.1994, 0.2010])
+        mean = np.array([0.4914, 0.4922, 0.4465])
+        # 按通道反normalization
+        feature = feature[:, :, :, :] * std[None, :, None, None]
+        feature = feature[:, :, :, :] + mean[None, :, None, None]
+        # 化到0~1的范围，这里是确保吧，事实上pytorch数据本来就应该在0~1上？还是说在-0.5~0.5上？等下看看
+        feature += np.abs(feature.min())
+        feature /= feature.max()
+        feature *= 255.
+        feature = np.uint8(feature)
+        # 变化通道从NCHW到NWHC，reshape为32*8(横8),32*2(纵2)，3（C），再改为纵横C
+        img = feature.transpose((0, 3, 2, 1)).reshape((-1, 32 * 2, 3)).transpose((1, 0, 2))
+        return img
+
+
     model.eval()
     for i, (input, target) in enumerate(val_loader):
         input_var = torch.autograd.Variable(input, volatile=True).cuda()
 
         x_inv, _ = invert_feature(model, input_var)
-
-        # invert_img(x_inv)
-
-        # 这里为啥还要用input?嗷嗷，好像是用来显示input图像的
         # 只取8张展示
         inp = input_var.data[:8,:,:,:]
         x_inv = x_inv.data[:8,:,:,:]
-        # 在第三个通道上拼接了，也即高拼接？为了同时展示上下8张图片
+        # 在第三个通道上拼接了，高拼接，为了同时展示上下8张图片
         grid = torch.cat((inp, x_inv),2).cpu().numpy()
-        # 接下来是反normal?
-        std = np.array([0.2023, 0.1994, 0.2010])
-        mean= np.array([0.4914, 0.4922, 0.4465])
-        grid = grid[:,:,:,:] * std[None, :, None, None]
-        grid = grid[:,:,:,:] + mean[None, :, None, None]
-        grid += np.abs(grid.min())
-        grid /= grid.max()
-        grid *= 255.
-        grid = np.uint8(grid)
-        # 变化通道从NCHW到NWHC，reshape为32*8(横8),32*2(纵2)，3（C），再改为纵横C
-        grid = grid.transpose((0, 3, 2, 1)).reshape((-1, 32*2, 3)).transpose((1, 0, 2))
-        g1 = grid[:32, :, :]
-        g2 = grid[32:, :, :]
-        match = np.sum(abs(g1 - g2))
-        print("图像是否重建", match == 0)
+
+        # 从特征到原图
+        img_rebuilt = invert_img(grid)
+        # g1 = grid[:32, :, :]
+        # g2 = grid[32:, :, :]
+        # match = np.sum(abs(g1 - g2))
+        # print("图像是否重建", match == 0)
         import matplotlib.pyplot as plt
-        plt.imsave('invert_val_samples.jpg', grid)
+        plt.imsave('invert_val_samples.jpg', img_rebuilt)
         print("数据重建结果已输出")
         return
 
 #  便于下次训练
 def save_checkpoint(state, filename='checkpoint/Spare/i-revnet-55.t7'):
     torch.save(state, filename)
+
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count

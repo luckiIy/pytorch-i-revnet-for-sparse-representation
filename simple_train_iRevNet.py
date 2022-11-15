@@ -21,33 +21,38 @@ from models.simple_utils import unsupervised_train, mean, std, get_hms, save_che
 
 
 def main():
+    batch = 512
     def get_trainset():
         transform_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
+            transforms.RandomCrop(32),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(mean['cifar10'], std['cifar10']),
         ])
+
         trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform_train)
         in_shape = [3, 32, 32]
-        trainloader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2)
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch, shuffle=True, num_workers=2)
         return trainset, in_shape, trainloader
 
     trainset, in_shape, trainloader = get_trainset()
 
     # 参数定义区 --nBlocks 18 18 18 --nStrides 1 2 2 --nChannels 16 64 256
+
+    # 初始下采样设置为2,初始扩充为12通道从3*32*32到12*16*16
+    init_ds = 2
     # 定义各块层数，步幅（注意这里是仅在2处发生一次步幅为2），各层通道数
     nBlocks = [18, 18, 18]
     nStrides = [1, 2, 2]
-    nChannels = [16, 64, 256]
-    # 初始下采样设置为0
-    init_ds = 0
+    # 通道数尤其注意，设置为3 * init_ds^2 / 2以避免补0
+    nChannels = [6, 24, 96]
     # 瓶颈乘数为4，这玩意限制了block中间卷积层的通道数，缩小4倍，经典的瓶颈层
+    # 受限于输入图像的宽度，这里临时修改mult为2进行实验，原本值为4
     bottleneck_mult = 4
     #
     epochs = 90
     lr = 0.1
-    batch = 128
+
     def get_model():
         model = iRevNet(nBlocks=nBlocks, nStrides=nStrides,
                         nChannels=nChannels,init_ds=init_ds,
@@ -63,7 +68,7 @@ def main():
     cudnn.benchmark = True
 
     # resume from cheakpoint
-    is_resume = 1
+    is_resume = 0
     resume = 'checkpoint/Spare/i-revnet-55.t7'
     start_epoch = 1
     if is_resume:
@@ -77,7 +82,7 @@ def main():
         else:
             print("=> no checkpoint found at '{}'".format(resume))
 
-    is_invert = 1
+    is_invert = 0
     if is_resume:
         if is_invert:
             invert(model, trainloader)
