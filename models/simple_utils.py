@@ -12,6 +12,9 @@ import os
 import sys
 import math
 import numpy as np
+
+from models.utils_spare import compute_gini, conv_matrix
+
 # test1
 # 经测试，用L1Loss作为损失，LOSS会逐渐降低，输出特征会逐渐减小，但就是不会归0。。这也不是不收敛啊，不收敛指的应该是LOSS没法稳定下降，所以接下来试试smoothL1不行再看看是不是结构出问题了
 # criterion = nn.L1Loss()
@@ -52,20 +55,7 @@ def get_hms(seconds):
 
 
 
-# 定义基尼系数的计算方式
-def compute_gini(feature):
-    # 输入feature应该是提取到的特征，tensor型数据,转为numpy，转成向量，获得长度，取绝对值变为标准的可measure非负序列
-    feature = feature.cpu().detach().numpy()
-    feature = feature.reshape(-1)
-    n = feature.shape[0]
 
-    # 利用compare measure那篇文章的公式，求1范数，排序，求解gini
-    feature = np.abs(feature)
-    f_sum = np.sum(feature)
-    feature = np.sort(feature)
-    k = np.arange(n) + 1.
-    gini =1. - 2. * np.sum((n + 0.5 - k) / (f_sum * n) * feature)
-    return gini
 
 def unsupervised_train(model, trainloader, trainset, epoch, epoch_n, batch_size, lr):
     model.train()
@@ -107,14 +97,16 @@ def unsupervised_train(model, trainloader, trainset, epoch, epoch_n, batch_size,
         except IndexError:
             loss.data = torch.reshape(loss.data, (1,))
         loss_sum += loss.data[0]
-        # # 原本的数0
-        # zero_num += out.eq(zero_tensor).cpu().sum()
-        # total += np.prod(out.size())
         # 经测试每个epoch里计算gini耗时约14S*2，这个计算量确实不小，改为10个batch算一次以显示吧
         if batch_idx % 10 == 0:
             # 计算输入的gini系数作为对比
-            gini_input.update(compute_gini(inputs))
+            # gini_input.update(compute_gini(inputs))
+            # 避免后续计算时,用之前得到的数据
+            if gini_input.avg == 0:
+                gini_input.update(0.381)
             gini.update(compute_gini(out))
+
+
         sys.stdout.write('\r')
         sys.stdout.write('| Epoch [%3d/%3d] Iter[%3d/%3d]\t\tLoss: %.4f Input Gini: %.3f Out Gini Index: %.3f '
                          % (epoch, epoch_n, batch_idx + 1,
@@ -128,36 +120,37 @@ def test(model):
     model.eval()
 
 
+### 从输入到特征invert到img的函数，因为要复用，写在外面
+
+# 执行逆向过程验证是否能够重建, 这边先写一个对单个数据的
+def invert_feature(model, input_for_rebuilt):
+    # 计算正向过程输出
+    output_bij = model(input_for_rebuilt)
+    # 这里.module是父类，但是这里有点不清楚一会要逐步调试
+    x_inv = model.module.inverse(output_bij)
+    # 现在这里验证一下inverse回来的跟
+    assert (input_for_rebuilt.shape == x_inv.shape)
+    match = input_for_rebuilt.eq(x_inv).cpu().sum() / np.prod(input_for_rebuilt.shape)
+    return x_inv, match
+
+# 这个函数用来从trainloader取的input回到原始图像
+def invert_img(feature):
+    std = np.array([0.2023, 0.1994, 0.2010])
+    mean = np.array([0.4914, 0.4922, 0.4465])
+    # 按通道反normalization
+    feature = feature[:, :, :, :] * std[None, :, None, None]
+    feature = feature[:, :, :, :] + mean[None, :, None, None]
+    # 化到0~1的范围，这里是确保吧，事实上pytorch数据本来就应该在0~1上？还是说在-0.5~0.5上？等下看看
+    feature += np.abs(feature.min())
+    feature /= feature.max()
+    feature *= 255.
+    feature = np.uint8(feature)
+    # 变化通道从NCHW到NWHC，reshape为32*8(横8),32*2(纵2)，3（C），再改为纵横C
+    img = feature.transpose((0, 3, 2, 1)).reshape((-1, 32 * 2, 3)).transpose((1, 0, 2))
+    return img
+
+# 完整的被调用的求逆函数
 def invert(model, val_loader):
-
-    # 执行逆向过程验证是否能够重建, 这边先写一个对单个数据的
-    def invert_feature(model, input_for_rebuilt):
-        # 计算正向过程输出
-        output_bij = model(input_for_rebuilt)
-        # 这里.module是父类，但是这里有点不清楚一会要逐步调试
-        x_inv = model.module.inverse(output_bij)
-        # 现在这里验证一下inverse回来的跟
-        assert (input_for_rebuilt.shape == x_inv.shape)
-        match = input_for_rebuilt.eq(x_inv).cpu().sum() / np.prod(input_for_rebuilt.shape)
-        return x_inv, match
-
-    # 这个函数用来从trainloader取的input回到原始图像
-    def invert_img(feature):
-        std = np.array([0.2023, 0.1994, 0.2010])
-        mean = np.array([0.4914, 0.4922, 0.4465])
-        # 按通道反normalization
-        feature = feature[:, :, :, :] * std[None, :, None, None]
-        feature = feature[:, :, :, :] + mean[None, :, None, None]
-        # 化到0~1的范围，这里是确保吧，事实上pytorch数据本来就应该在0~1上？还是说在-0.5~0.5上？等下看看
-        feature += np.abs(feature.min())
-        feature /= feature.max()
-        feature *= 255.
-        feature = np.uint8(feature)
-        # 变化通道从NCHW到NWHC，reshape为32*8(横8),32*2(纵2)，3（C），再改为纵横C
-        img = feature.transpose((0, 3, 2, 1)).reshape((-1, 32 * 2, 3)).transpose((1, 0, 2))
-        return img
-
-
     model.eval()
     for i, (input, target) in enumerate(val_loader):
         input_var = torch.autograd.Variable(input, volatile=True).cuda()
@@ -177,6 +170,36 @@ def invert(model, val_loader):
         # print("图像是否重建", match == 0)
         import matplotlib.pyplot as plt
         plt.imsave('invert_val_samples.jpg', img_rebuilt)
+        print("数据重建结果已输出")
+        return
+
+# 用于变换特征为稀疏
+def spare_visual(model, val_loader):
+    model.eval()
+    for i, (input, target) in enumerate(val_loader):
+        input_var = torch.autograd.Variable(input, volatile=True).cuda()
+        # 计算正向过程输出
+        output_bij = model(input_var)
+
+        inp = input_var.data[:1, :, :, :]
+        x_inv = output_bij.data[:1, :, :, :]
+        # # 在第三个通道上拼接了，高拼接，为了同时展示上下8张图片
+        # grid = torch.cat((inp, x_inv), 2).cpu().numpy()
+
+        # 从特征到原图
+        img_rebuilt_inp = invert_img(inp)
+        img_rebuilt_outp = invert_img(x_inv)
+
+        conv_m_inp = conv_matrix(inp)
+        conv_m_outp = conv_matrix(x_inv)
+
+
+        # g1 = grid[:32, :, :]
+        # g2 = grid[32:, :, :]
+        # match = np.sum(abs(g1 - g2))
+        # print("图像是否重建", match == 0)
+        # import matplotlib.pyplot as plt
+        # plt.imsave('invert_val_samples.jpg', img_rebuilt)
         print("数据重建结果已输出")
         return
 

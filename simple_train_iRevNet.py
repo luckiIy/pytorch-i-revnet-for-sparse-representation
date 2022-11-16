@@ -14,7 +14,7 @@ import sys
 import time
 
 from models.simple_iRevNet import iRevNet
-from models.simple_utils import unsupervised_train, mean, std, get_hms, save_checkpoint, invert
+from models.simple_utils import unsupervised_train, mean, std, get_hms, save_checkpoint, invert, spare_visual
 
 
 
@@ -22,6 +22,9 @@ from models.simple_utils import unsupervised_train, mean, std, get_hms, save_che
 
 def main():
     batch = 512
+    epochs = 200
+    lr = 0.1
+
     def get_trainset():
         transform_train = transforms.Compose([
             transforms.RandomCrop(32),
@@ -49,9 +52,7 @@ def main():
     # 瓶颈乘数为4，这玩意限制了block中间卷积层的通道数，缩小4倍，经典的瓶颈层
     # 受限于输入图像的宽度，这里临时修改mult为2进行实验，原本值为4
     bottleneck_mult = 4
-    #
-    epochs = 90
-    lr = 0.1
+
 
     def get_model():
         model = iRevNet(nBlocks=nBlocks, nStrides=nStrides,
@@ -81,17 +82,23 @@ def main():
                   .format(resume, checkpoint['epoch']))
         else:
             print("=> no checkpoint found at '{}'".format(resume))
-
+    # 重建输入
     is_invert = 0
-    if is_resume:
-        if is_invert:
+    if is_invert:
+        if is_resume:
             invert(model, trainloader)
             return
         else:
             print("no model ready for invert, please use resume")
 
-
-
+    # 将特征输出为卷积矩阵稀疏化的形式？存疑,这个后面可能要和invert整合起来
+    is_sparse_visual = 0
+    if is_sparse_visual:
+        if is_resume:
+            sparse_visual(model, trainloader)
+            return
+        else:
+            print("no model ready for sparse visual, please use resume")
 
     print('|  Train Epochs: ' + str(epochs))
     print('|  Initial Learning Rate: ' + str(lr))
