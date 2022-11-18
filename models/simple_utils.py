@@ -13,7 +13,7 @@ import sys
 import math
 import numpy as np
 
-from models.utils_spare import compute_gini, conv_matrix
+from models.utils_sparse import compute_gini, feature_to_Af, conv_matrix
 
 # test1
 # 经测试，用L1Loss作为损失，LOSS会逐渐降低，输出特征会逐渐减小，但就是不会归0。。这也不是不收敛啊，不收敛指的应该是LOSS没法稳定下降，所以接下来试试smoothL1不行再看看是不是结构出问题了
@@ -174,7 +174,7 @@ def invert(model, val_loader):
         return
 
 # 用于变换特征为稀疏
-def spare_visual(model, val_loader):
+def sparse_visual(model, val_loader):
     model.eval()
     for i, (input, target) in enumerate(val_loader):
         input_var = torch.autograd.Variable(input, volatile=True).cuda()
@@ -187,12 +187,42 @@ def spare_visual(model, val_loader):
         # grid = torch.cat((inp, x_inv), 2).cpu().numpy()
 
         # 从特征到原图
-        img_rebuilt_inp = invert_img(inp)
-        img_rebuilt_outp = invert_img(x_inv)
+        img_rebuilt_outp = invert_img(inp.cpu().numpy())
 
-        conv_m_inp = conv_matrix(inp)
-        conv_m_outp = conv_matrix(x_inv)
+        x_gini = compute_gini(x_inv)
 
+
+        conv_x = conv_matrix(x_inv)
+        _, sigma, _ = np.linalg.svd(conv_x)
+        conv_x_gini = compute_gini(torch.from_numpy(sigma))
+
+
+        Ax = feature_to_Af(x_inv)
+
+        conv_Ax = conv_matrix(torch.from_numpy(Ax))
+        _, sigma, _ = np.linalg.svd(conv_Ax)
+        conv_Ax_gini = compute_gini(torch.from_numpy(sigma))
+
+
+        print(x_gini, conv_x_gini, conv_Ax_gini)
+
+
+
+
+        # w = Ax.shape[0]
+        # Ax_img = np.zeros((w, w))
+        # 画出来看看
+        import pandas as pd
+        import matplotlib.pyplot as plt
+        # x_gini = compute_gini(x_inv)
+        # x_inv = pd.Series(x_inv.cpu().detach().numpy().reshape(-1))
+        # x_inv.plot()
+        # plt.show()
+
+        # y_gini = compute_gini(torch.from_numpy(Ax))
+        Ax = pd.Series(Ax)
+        Ax.plot()
+        plt.show()
 
         # g1 = grid[:32, :, :]
         # g2 = grid[32:, :, :]
@@ -200,7 +230,7 @@ def spare_visual(model, val_loader):
         # print("图像是否重建", match == 0)
         # import matplotlib.pyplot as plt
         # plt.imsave('invert_val_samples.jpg', img_rebuilt)
-        print("数据重建结果已输出")
+        print("出")
         return
 
 #  便于下次训练

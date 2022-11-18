@@ -14,7 +14,7 @@ import sys
 import time
 
 from models.simple_iRevNet import iRevNet
-from models.simple_utils import unsupervised_train, mean, std, get_hms, save_checkpoint, invert, spare_visual
+from models.simple_utils import unsupervised_train, mean, std, get_hms, save_checkpoint, invert, sparse_visual
 
 
 
@@ -69,7 +69,7 @@ def main():
     cudnn.benchmark = True
 
     # resume from cheakpoint
-    is_resume = 0
+    is_resume = 1
     resume = 'checkpoint/Spare/i-revnet-55.t7'
     start_epoch = 1
     if is_resume:
@@ -92,7 +92,7 @@ def main():
             print("no model ready for invert, please use resume")
 
     # 将特征输出为卷积矩阵稀疏化的形式？存疑,这个后面可能要和invert整合起来
-    is_sparse_visual = 0
+    is_sparse_visual = 1
     if is_sparse_visual:
         if is_resume:
             sparse_visual(model, trainloader)
