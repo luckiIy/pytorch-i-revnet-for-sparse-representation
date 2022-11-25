@@ -1,3 +1,5 @@
+## 该版本对原内容做了很多修改，是为了用可逆网络做稀疏表征的版本，后续会重写出来
+
 ## i-RevNet: Deep Invertible Networks
 
 Pytorch implementation of i-RevNets. 
