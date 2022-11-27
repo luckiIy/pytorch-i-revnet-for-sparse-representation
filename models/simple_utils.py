@@ -182,55 +182,57 @@ def sparse_visual(model, val_loader):
         output_bij = model(input_var)
 
         inp = input_var.data[:1, :, :, :]
-        x_inv = output_bij.data[:1, :, :, :]
-        # # 在第三个通道上拼接了，高拼接，为了同时展示上下8张图片
-        # grid = torch.cat((inp, x_inv), 2).cpu().numpy()
-
-        # 从特征到原图
         img_rebuilt_outp = invert_img(inp.cpu().numpy())
-
+        x_inv = output_bij.data[:1, :, :, :]
         x_gini = compute_gini(x_inv)
-
-
-        conv_x = conv_matrix(x_inv)
+        conv_x = conv_matrix(x_inv.cpu().detach().numpy().reshape(-1))
         _, sigma, _ = np.linalg.svd(conv_x)
         conv_x_gini = compute_gini(torch.from_numpy(sigma))
-
-
-        Ax = feature_to_Af(x_inv)
-
-        conv_Ax = conv_matrix(torch.from_numpy(Ax))
-        _, sigma, _ = np.linalg.svd(conv_Ax)
-        conv_Ax_gini = compute_gini(torch.from_numpy(sigma))
-
-
-        print(x_gini, conv_x_gini, conv_Ax_gini)
-
-
-
+        '''
+        # # 在第三个通道上拼接了，高拼接，为了同时展示上下8张图片
+        # grid = torch.cat((inp, x_inv), 2).cpu().numpy()
+        # 从特征到原图
+        # x_gini = compute_gini(x_inv)
+        # conv_x = conv_matrix(x_inv)
+        # _, sigma, _ = np.linalg.svd(conv_x)
+        # conv_x_gini = compute_gini(torch.from_numpy(sigma))
+        # 
+        # 
+        # Ax = feature_to_Af(x_inv)
+        # 
+        # conv_Ax = conv_matrix(torch.from_numpy(Ax))
+        # _, sigma, _ = np.linalg.svd(conv_Ax)
+        # conv_Ax_gini = compute_gini(torch.from_numpy(sigma))
 
         # w = Ax.shape[0]
         # Ax_img = np.zeros((w, w))
         # 画出来看看
-        import pandas as pd
-        import matplotlib.pyplot as plt
+        # import pandas as pd
+        # import matplotlib.pyplot as plt
         # x_gini = compute_gini(x_inv)
         # x_inv = pd.Series(x_inv.cpu().detach().numpy().reshape(-1))
         # x_inv.plot()
         # plt.show()
 
         # y_gini = compute_gini(torch.from_numpy(Ax))
-        Ax = pd.Series(Ax)
-        Ax.plot()
-        plt.show()
-
+        # Ax = pd.Series(Ax)
+        # Ax.plot()
+        # plt.show()
         # g1 = grid[:32, :, :]
         # g2 = grid[32:, :, :]
         # match = np.sum(abs(g1 - g2))
         # print("图像是否重建", match == 0)
         # import matplotlib.pyplot as plt
         # plt.imsave('invert_val_samples.jpg', img_rebuilt)
-        print("出")
+        '''
+        feature, gini = feature_to_Af(x_inv)
+        import pandas as pd
+        import matplotlib.pyplot as plt
+        feature = pd.Series(feature.reshape(-1))
+        feature.plot()
+        plt.show()
+        print(gini)
+        print("*******")
         return
 
 #  便于下次训练
